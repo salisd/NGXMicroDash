@@ -6,7 +6,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import streamlit as st
 
-from common import prices, require_data, spread_windows_sidebar
+from common import ensure_data, prices, require_data, spread_windows_sidebar
 from ngxdash.analytics import (
     corwin_schultz_series,
     decompose_volume,
@@ -15,6 +15,7 @@ from ngxdash.analytics import (
 )
 
 st.set_page_config(page_title="Security Drill-down — NGXDash", layout="wide")
+ensure_data()
 st.title("Security drill-down")
 
 rows = require_data()

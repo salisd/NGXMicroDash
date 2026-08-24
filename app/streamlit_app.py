@@ -2,9 +2,10 @@
 
 import streamlit as st
 
-from common import coverage, universe
+from common import coverage, ensure_data, universe
 
 st.set_page_config(page_title="NGXDash", page_icon="📊", layout="wide")
+ensure_data()
 
 st.title("NGXDash — NGX Market Microstructure")
 st.markdown(

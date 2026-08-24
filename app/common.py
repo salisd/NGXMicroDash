@@ -5,11 +5,74 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+import threading
+
 import pandas as pd
 import streamlit as st
 
-from ngxdash import config
+from ngxdash import bootstrap, config
 from ngxdash.ingestion import cache
+
+
+@st.cache_resource(show_spinner=False)
+def _bootstrap_lock() -> threading.Lock:
+    """One lock per server process, so concurrent first viewers cannot each
+    start a fetch and double-spend the API rate limit."""
+    return threading.Lock()
+
+
+def ensure_data() -> None:
+    """Fetch-on-first-boot: called at the top of every page.
+
+    No-op whenever the cache has any symbols (the normal case — including
+    every rerun and every later viewer). Only a genuinely empty cache with a
+    configured key triggers a fetch, with visible progress. Without a key we
+    fall through to the pages' "no data" guidance instead of hanging.
+    """
+    if not bootstrap.bootstrap_needed() or not config.NGX_PULSE_API_KEY:
+        return
+    lock = _bootstrap_lock()
+    if not lock.acquire(blocking=False):
+        st.info(
+            "First-boot data fetch is running in another session — "
+            "this page will load once it finishes. Refresh in a minute."
+        )
+        st.stop()
+    try:
+        if not bootstrap.bootstrap_needed():  # raced: another session finished
+            return
+        st.title("NGXDash — first boot")
+        st.markdown(
+            "The data cache is empty (fresh deployment), so ~9 years of "
+            "daily NGX history is being fetched now. This respects the API's "
+            "10 requests/minute limit, so it typically takes **4–10 "
+            "minutes** depending on API response times — afterwards the app "
+            "serves everything from its local cache."
+        )
+        bar = st.progress(0.0, text="Fetching NGX universe…")
+
+        def _progress(done: int, total: int, msg: str) -> None:
+            bar.progress(done / max(total, 1), text=msg)
+
+        result = bootstrap.run_bootstrap(progress=_progress)
+        if result["failed"]:
+            names = ", ".join(s for s, _ in result["failed"])
+            st.warning(
+                f"{len(result['failed'])} symbol(s) could not be fetched and "
+                f"are simply absent (not faked): {names}. A common cause is "
+                "the API's 100 requests/day budget; they will be picked up "
+                "on the next cold boot."
+            )
+        if result["fetched"] == 0:
+            st.error(
+                "Bootstrap fetched nothing — the app cannot render. "
+                "Check the API key in secrets and the API status, then reboot."
+            )
+            st.stop()
+    finally:
+        lock.release()
+    st.cache_data.clear()
+    st.rerun()
 
 
 @st.cache_data(ttl=3600)

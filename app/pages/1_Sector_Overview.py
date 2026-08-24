@@ -3,7 +3,7 @@
 import plotly.graph_objects as go
 import streamlit as st
 
-from common import prices, require_data, spread_windows_sidebar
+from common import ensure_data, prices, require_data, spread_windows_sidebar
 from ngxdash.aggregate import sector_median, sector_sum
 from ngxdash.analytics import (
     corwin_schultz_series,
@@ -13,6 +13,7 @@ from ngxdash.analytics import (
 )
 
 st.set_page_config(page_title="Sector Overview — NGXDash", layout="wide")
+ensure_data()
 st.title("Sector overview")
 
 rows = require_data()

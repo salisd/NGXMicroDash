@@ -13,8 +13,23 @@ PRICES_DIR = DATA_DIR / "prices"
 UNIVERSE_PATH = DATA_DIR / "universe.parquet"
 META_PATH = DATA_DIR / "meta.json"
 
-NGX_PULSE_API_KEY = os.environ.get("NGX_PULSE_API_KEY", "")
-EODHD_API_TOKEN = os.environ.get("EODHD_API_TOKEN", "")
+def _secret(name: str) -> str:
+    """One lookup path everywhere: environment (incl. .env, loaded above)
+    first, then Streamlit's secrets manager when running deployed. Keeps
+    local dev and Streamlit Cloud on identical code."""
+    value = os.environ.get(name, "")
+    if value:
+        return value
+    try:
+        import streamlit as st
+
+        return str(st.secrets.get(name, ""))
+    except Exception:  # streamlit absent, or no secrets file configured
+        return ""
+
+
+NGX_PULSE_API_KEY = _secret("NGX_PULSE_API_KEY")
+EODHD_API_TOKEN = _secret("EODHD_API_TOKEN")
 
 # Default analysis parameters (all overridable in the dashboard UI).
 DEFAULT_ROLL_WINDOW = 60        # trading days for rolling Roll covariance
