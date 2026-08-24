@@ -50,9 +50,12 @@ sectors (Financial Services, Consumer Goods, Industrial Goods, Oil and Gas,
 ICT, Agriculture) — configurable via `--sectors/--per-sector/--symbols`.
 
 > **Achieved data (fetched 2026-08-24, NGX Pulse Personal key):** 36 symbols
-> across 6 sectors; 20 of them span the full **2017-01-03 → 2026-08-21**
-> range, the rest start at their listing dates (e.g. MTNN 2019, BUAFOODS
-> 2022). **The free tier returns close + volume history only** — its
+> across 6 sectors, spanning up to **2015-01-05 → 2026-08-24** for the
+> longest-listed names; newer listings start at their listing dates (e.g.
+> MTNN 2019, BUAFOODS 2022). The depth the API serves has varied slightly
+> between fetches (2017 vs 2015 starts); the entry page always reports the
+> range actually in the cache, which is the number to quote.
+> **The free tier returns close + volume history only** — its
 > historical rows carry no genuine open/high/low (the API duplicates close
 > into "open"; the ingestion nulls those columns rather than store
 > fake OHLC). Consequently Corwin-Schultz cannot be computed from this
@@ -60,6 +63,35 @@ ICT, Agriculture) — configurable via `--sectors/--per-sector/--symbols`.
 > STL volume decomposition, and realized volatility are unaffected. To light
 > up Corwin-Schultz, supply high/low data (e.g. an EODHD key) for at least a
 > subset of symbols.
+
+### Deployment (Streamlit Community Cloud)
+
+The app is deployed at: **<DEPLOY_URL>** (fill in after first deploy).
+
+How the deployed instance stays honest and inside API limits:
+
+* **Fetch-on-first-boot.** Streamlit Cloud's filesystem is ephemeral, so a
+  fresh container starts with an empty cache. Every data page calls
+  `ensure_data()`, which detects the empty cache and runs the same fetch
+  pipeline as `scripts/fetch_data.py` (one shared implementation in
+  `ngxdash/bootstrap.py`) with a visible progress bar — a cold visitor sees
+  "first boot, fetching, ~4–10 minutes", never a blank page. Most-traded
+  symbols are fetched first, so if the fetch is cut short the app degrades
+  to partial coverage and says so.
+* **Rate limits.** Boot fetches are spaced 6.5s apart (~9 req/min, under
+  the Personal tier's 10/min cap) and a process-wide lock prevents
+  concurrent viewers from double-fetching. One boot costs ~37 of the
+  tier's 100 requests/day, so the tier supports at most ~2 cold boots per
+  day — fine for a portfolio app that Streamlit keeps warm between visits,
+  and a fetch that runs out of budget shows failed symbols explicitly.
+* **Secrets.** The API key lives in Streamlit Cloud's secrets manager
+  (Settings → Secrets): `NGX_PULSE_API_KEY = "..."`. Locally it comes from
+  `.env`. Both go through one lookup path (`ngxdash/config.py`), so local
+  and deployed behavior cannot drift.
+
+To deploy your own: push to GitHub → share.streamlit.io → New app →
+repo/branch `main`, main file `app/streamlit_app.py`, Python 3.13 → add the
+secret above → Deploy.
 
 ### Run the dashboard
 
