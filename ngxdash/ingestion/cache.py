@@ -1,5 +1,10 @@
 """Local parquet cache.
 
+The runtime cache (config.DATA_DIR) is separate from the bundled snapshot
+(config.SNAPSHOT_DIR, checked into git): the snapshot is a fixed, dated
+dataset shipped with the app; the runtime cache is what pages actually read
+and, in local dev, what scripts/fetch_data.py writes into.
+
 The dashboard reads only from this cache; the fetch script is the only
 component that talks to remote APIs. This keeps the app reproducible and
 offline-friendly once data is fetched, and makes rate limits a one-time
@@ -12,6 +17,7 @@ Layout (under config.DATA_DIR):
 """
 
 import json
+import shutil
 from datetime import datetime, timezone
 
 import pandas as pd
@@ -50,6 +56,26 @@ def load_prices(symbol: str) -> pd.DataFrame | None:
     if not path.exists():
         return None
     return pd.read_parquet(path)
+
+
+def restore_from_snapshot() -> dict | None:
+    """Populate an empty runtime cache from the bundled snapshot.
+
+    Returns the snapshot's manifest dict (as_of date, reason, etc.) on
+    success, or None if no bundled snapshot exists. This is a local file
+    copy, not a network call — it exists because the live API's free tier
+    can no longer supply enough history to bootstrap a fresh deployment
+    (see README "Known limitations"); it is not a substitute for live data
+    and is never used when the runtime cache already has anything in it.
+    """
+    if not config.SNAPSHOT_DIR.exists():
+        return None
+    config.DATA_DIR.mkdir(parents=True, exist_ok=True)
+    shutil.copytree(config.SNAPSHOT_DIR / "prices", config.PRICES_DIR, dirs_exist_ok=True)
+    shutil.copy2(config.SNAPSHOT_DIR / "universe.parquet", config.UNIVERSE_PATH)
+    shutil.copy2(config.SNAPSHOT_DIR / "meta.json", config.META_PATH)
+    manifest_path = config.SNAPSHOT_DIR / "SNAPSHOT_INFO.json"
+    return json.loads(manifest_path.read_text()) if manifest_path.exists() else {}
 
 
 def cached_symbols() -> list[str]:

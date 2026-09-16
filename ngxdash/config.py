@@ -9,6 +9,10 @@ load_dotenv()
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = Path(os.environ.get("NGXDASH_DATA_DIR", PROJECT_ROOT / "data"))
+# Bundled, versioned, git-committed dataset (see data_snapshot/SNAPSHOT_INFO.json).
+# Restored into DATA_DIR on first boot when DATA_DIR is empty — see
+# ngxdash.ingestion.cache.restore_from_snapshot and README "Known limitations".
+SNAPSHOT_DIR = PROJECT_ROOT / "data_snapshot"
 PRICES_DIR = DATA_DIR / "prices"
 UNIVERSE_PATH = DATA_DIR / "universe.parquet"
 META_PATH = DATA_DIR / "meta.json"

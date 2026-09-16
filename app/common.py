@@ -10,65 +10,57 @@ import threading
 import pandas as pd
 import streamlit as st
 
-from ngxdash import bootstrap, config
+from ngxdash import config
 from ngxdash.ingestion import cache
 
 
 @st.cache_resource(show_spinner=False)
 def _bootstrap_lock() -> threading.Lock:
-    """One lock per server process, so concurrent first viewers cannot each
-    start a fetch and double-spend the API rate limit."""
+    """One lock per server process, so concurrent first viewers on a cold
+    container cannot both race the snapshot copy at once."""
     return threading.Lock()
 
 
 def ensure_data() -> None:
-    """Fetch-on-first-boot: called at the top of every page.
+    """First-boot data restore: called at the top of every page.
 
-    No-op whenever the cache has any symbols (the normal case — including
-    every rerun and every later viewer). Only a genuinely empty cache with a
-    configured key triggers a fetch, with visible progress. Without a key we
-    fall through to the pages' "no data" guidance instead of hanging.
+    No-op whenever the runtime cache already has any symbols (the normal
+    case — every rerun, every later viewer, and every local dev session
+    after the first `scripts/fetch_data.py` run).
+
+    On a genuinely empty cache (a fresh Streamlit Cloud container, whose
+    filesystem is ephemeral), this restores the bundled, versioned snapshot
+    in data_snapshot/ rather than live-fetching. That used to be a live
+    fetch from NGX Pulse, but NGX Pulse rebranded to Kobo Terminal and its
+    free tier no longer serves more than 7 days of history (confirmed
+    2026-09-16 — see README "Known limitations"), which is too little for
+    any of the estimator windows. Restoring a dated snapshot and saying so
+    honestly beats a live fetch that would silently under-deliver.
     """
-    if not bootstrap.bootstrap_needed() or not config.NGX_PULSE_API_KEY:
+    if cache.cached_symbols():
         return
     lock = _bootstrap_lock()
     if not lock.acquire(blocking=False):
-        st.info(
-            "First-boot data fetch is running in another session — "
-            "this page will load once it finishes. Refresh in a minute."
-        )
+        st.info("Restoring bundled dataset in another session — reloading…")
         st.stop()
     try:
-        if not bootstrap.bootstrap_needed():  # raced: another session finished
+        if cache.cached_symbols():  # raced: another session already restored
             return
-        st.title("NGXDash — first boot")
-        st.markdown(
-            "The data cache is empty (fresh deployment), so ~9 years of "
-            "daily NGX history is being fetched now. This respects the API's "
-            "10 requests/minute limit, so it typically takes **4–10 "
-            "minutes** depending on API response times — afterwards the app "
-            "serves everything from its local cache."
-        )
-        bar = st.progress(0.0, text="Fetching NGX universe…")
-
-        def _progress(done: int, total: int, msg: str) -> None:
-            bar.progress(done / max(total, 1), text=msg)
-
-        result = bootstrap.run_bootstrap(progress=_progress)
-        if result["failed"]:
-            names = ", ".join(s for s, _ in result["failed"])
-            st.warning(
-                f"{len(result['failed'])} symbol(s) could not be fetched and "
-                f"are simply absent (not faked): {names}. A common cause is "
-                "the API's 100 requests/day budget; they will be picked up "
-                "on the next cold boot."
-            )
-        if result["fetched"] == 0:
+        manifest = cache.restore_from_snapshot()
+        if manifest is None:
             st.error(
-                "Bootstrap fetched nothing — the app cannot render. "
-                "Check the API key in secrets and the API status, then reboot."
+                "No local data and no bundled snapshot found. Run "
+                "`python scripts/fetch_data.py` locally to populate the "
+                "cache (requires an API key — see README)."
             )
             st.stop()
+        st.info(
+            f"Restored the bundled dataset: {manifest.get('n_symbols', '?')} "
+            f"symbols as of **{manifest.get('as_of', '?')}**. "
+            f"{manifest.get('reason', '')} This is a frozen, versioned "
+            "snapshot shipped with the app, not a live fetch — see the "
+            "entry page and README for why."
+        )
     finally:
         lock.release()
     st.cache_data.clear()

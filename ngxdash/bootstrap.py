@@ -1,4 +1,14 @@
-"""First-boot data bootstrap: populate an empty cache from the primary API.
+"""Live data bootstrap: populate an empty cache from the primary API.
+
+STATUS (2026-09-16): not currently usable for a from-empty deployment
+bootstrap. NGX Pulse rebranded to Kobo Terminal and its free tier now caps
+history at 7 days (previously ambiguous, now explicitly enforced) — too
+short for any estimator window here. The deployed app restores a bundled
+snapshot instead (see ngxdash.ingestion.cache.restore_from_snapshot and
+app/common.py::ensure_data). This module is kept because the logic is
+correct and becomes usable again on a paid tier, or manually via
+scripts/fetch_data.py for topping up whatever the free tier's 7-day window
+still allows.
 
 Used by the Streamlit app when it starts with no local cache (e.g. a fresh
 Streamlit Cloud container, whose filesystem is ephemeral). Deliberately

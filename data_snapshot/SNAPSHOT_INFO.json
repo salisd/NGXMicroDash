@@ -1,0 +1,6 @@
+{
+  "as_of": "2026-08-24",
+  "reason": "NGX Pulse rebranded to Kobo Terminal and closed the free-tier historical-data loophole (now requires paid Starter tier, ~29,000 NGN/month) on or before 2026-09-16. This is the last dataset fetched while the free tier still served full history.",
+  "n_symbols": 36,
+  "fetched_via": "ngx_pulse (NGX Pulse Personal/Free tier, prior to the tier lockdown)"
+}

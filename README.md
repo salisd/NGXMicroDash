@@ -49,12 +49,12 @@ Default universe: top 6 symbols by traded value in each of 6 official NGX
 sectors (Financial Services, Consumer Goods, Industrial Goods, Oil and Gas,
 ICT, Agriculture) — configurable via `--sectors/--per-sector/--symbols`.
 
-> **Achieved data (fetched 2026-08-24, NGX Pulse Personal key):** 36 symbols
-> across 6 sectors, spanning up to **2015-01-05 → 2026-08-24** for the
-> longest-listed names; newer listings start at their listing dates (e.g.
-> MTNN 2019, BUAFOODS 2022). The depth the API serves has varied slightly
-> between fetches (2017 vs 2015 starts); the entry page always reports the
-> range actually in the cache, which is the number to quote.
+> **Achieved data — frozen snapshot as of 2026-08-24** (NGX Pulse Personal
+> key, fetched before the vendor tier change below): 36 symbols across 6
+> sectors, spanning up to **2015-01-05 → 2026-08-24** for the longest-listed
+> names; newer listings start at their listing dates (e.g. MTNN 2019,
+> BUAFOODS 2022). The entry page always reports the range actually in the
+> cache, which is the number to quote.
 > **The free tier returns close + volume history only** — its
 > historical rows carry no genuine open/high/low (the API duplicates close
 > into "open"; the ingestion nulls those columns rather than store
@@ -63,31 +63,44 @@ ICT, Agriculture) — configurable via `--sectors/--per-sector/--symbols`.
 > STL volume decomposition, and realized volatility are unaffected. To light
 > up Corwin-Schultz, supply high/low data (e.g. an EODHD key) for at least a
 > subset of symbols.
+>
+> **Why this data no longer refreshes (vendor change, 2026-09-16):** NGX
+> Pulse rebranded to **Kobo Terminal** (koboterminal.com, operated by
+> SereneCircle Limited) and closed a loophole — its free tier now returns
+> `403 Starter plan required for historical data` for any request beyond 7
+> days of history, confirmed directly against the live API with the same
+> key that fetched everything above. The 36-symbol dataset above was
+> fetched legitimately while the free tier still served full history, and
+> is committed to this repo as a dated, versioned snapshot (`data_snapshot/`,
+> see `SNAPSHOT_INFO.json`) rather than re-fetched live. Extending it now
+> requires either the ₦29,000/month Starter tier or a different source.
 
 ### Deployment (Streamlit Community Cloud)
 
 The app is deployed at: **<DEPLOY_URL>** (fill in after first deploy).
 
-How the deployed instance stays honest and inside API limits:
+How the deployed instance stays honest given the vendor change above:
 
-* **Fetch-on-first-boot.** Streamlit Cloud's filesystem is ephemeral, so a
-  fresh container starts with an empty cache. Every data page calls
-  `ensure_data()`, which detects the empty cache and runs the same fetch
-  pipeline as `scripts/fetch_data.py` (one shared implementation in
-  `ngxdash/bootstrap.py`) with a visible progress bar — a cold visitor sees
-  "first boot, fetching, ~4–10 minutes", never a blank page. Most-traded
-  symbols are fetched first, so if the fetch is cut short the app degrades
-  to partial coverage and says so.
-* **Rate limits.** Boot fetches are spaced 6.5s apart (~9 req/min, under
-  the Personal tier's 10/min cap) and a process-wide lock prevents
-  concurrent viewers from double-fetching. One boot costs ~37 of the
-  tier's 100 requests/day, so the tier supports at most ~2 cold boots per
-  day — fine for a portfolio app that Streamlit keeps warm between visits,
-  and a fetch that runs out of budget shows failed symbols explicitly.
+* **Restore-on-first-boot, not fetch-on-first-boot.** Streamlit Cloud's
+  filesystem is ephemeral, so a fresh container starts with an empty cache.
+  This was originally designed as a live fetch on first boot, but the free
+  tier's 7-day cap (see above) makes that produce a dashboard with too
+  little history for any estimator window. Instead, every data page calls
+  `ensure_data()` (`app/common.py`), which detects an empty runtime cache
+  and restores the committed `data_snapshot/` into it
+  (`ngxdash.ingestion.cache.restore_from_snapshot`) — a local file copy,
+  not a network call, so it's near-instant and cannot be rate-limited. The
+  restored page tells the viewer plainly that this is a dated snapshot, not
+  live data. `ngxdash/bootstrap.py` still contains the original live-fetch
+  logic, kept for local use if you're on a paid tier (see its module
+  docstring) — it is not what the deployed app relies on.
 * **Secrets.** The API key lives in Streamlit Cloud's secrets manager
   (Settings → Secrets): `NGX_PULSE_API_KEY = "..."`. Locally it comes from
   `.env`. Both go through one lookup path (`ngxdash/config.py`), so local
-  and deployed behavior cannot drift.
+  and deployed behavior cannot drift. (The deployed app doesn't actually
+  need the key for the snapshot-restore path, but keeping it configured
+  lets `scripts/fetch_data.py` and the Methodology/API-status code paths
+  work identically in both places.)
 
 To deploy your own: push to GitHub → share.streamlit.io → New app →
 repo/branch `main`, main file `app/streamlit_app.py`, Python 3.13 → add the
@@ -117,6 +130,8 @@ ngxdash/
   ingestion/     API clients (NGX Pulse, EODHD), NGX public universe, parquet cache
   analytics/     spreads.py (Roll, Corwin-Schultz), volatility.py, decomposition.py
   aggregate.py   sector-level aggregation rules
+  bootstrap.py   live-fetch bootstrap (currently unusable on the free tier — see above)
+data_snapshot/   committed, dated dataset the deployed app restores from on first boot
 scripts/fetch_data.py   the only component that touches remote APIs
 app/                    Streamlit: entry + Sector Overview / Drill-down / Methodology
 tests/                  unit tests for estimators, ingestion, aggregation
@@ -156,6 +171,13 @@ calendar; over-reporting gaps beats hiding real ones).
 
 ## Known limitations
 
+* **The dataset is a frozen snapshot (as of 2026-08-24), not live.** NGX
+  Pulse rebranded to Kobo Terminal and closed its free tier's
+  historical-data loophole on or before 2026-09-16 (now `403 Starter plan
+  required`, confirmed against the live API — see "Why this data no longer
+  refreshes" above). The committed `data_snapshot/` is the last dataset
+  fetched while the free tier still allowed it; nothing in it is
+  fabricated or backfilled, it simply stops updating.
 * NGX Pulse free tier provides no historical high/low → Corwin-Schultz
   runs only for symbols with high/low from another source (none in the
   default fetch); it remains fully implemented, unit-tested, and documented.
@@ -166,7 +188,7 @@ calendar; over-reporting gaps beats hiding real ones).
 * NGX Pulse's historical response schema isn't publicly documented for the
   free tier; the ingestion is schema-tolerant and fails loudly (never
   silently) when a key returns snapshots only.
-* No survivorship-bias handling: the universe is today's listings.
+* No survivorship-bias handling: the universe is 2026-08-24's listings.
 
 ## References
 
